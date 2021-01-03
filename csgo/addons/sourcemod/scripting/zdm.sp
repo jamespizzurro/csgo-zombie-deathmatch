@@ -184,9 +184,9 @@ public Action OnRoundPreStart(Handle event, const char[] name, bool dontBroadcas
 public Action OnRoundStart(Event event, const char[] name, bool dontBroadcast) {
 	// prevent zombies from being able to buy stuff
 	// source: https://forums.alliedmods.net/showpost.php?p=2371918&postcount=9
-    GameRules_SetProp("m_bTCantBuy", true, _, _, true);
-    
-    return Plugin_Continue;
+	GameRules_SetProp("m_bTCantBuy", true, _, _, true);
+	
+	return Plugin_Continue;
 } 
 
 public Action OnPlayerTeam_Pre(Event event, const char[] name, bool dontBroadcast) {
@@ -296,7 +296,7 @@ public Action OnWeaponCanUse(int client, int weapon) {
 }
 
 public Action OnTakeDamage(int victim, int &attacker, int &inflictor, float &damage, int &damagetype, int &weapon, float damageForce[3], float damagePosition[3], int damagecustom) {
-    // light survivors and zombies on fire for a short time if they are hit with the fire from an incendiary grenade
+	// light survivors and zombies on fire for a short time if they are hit with the fire from an incendiary grenade
 	if (damagetype == DMG_BURN) {
 		IgniteEntity(victim, 3.0);
 	}
@@ -485,7 +485,7 @@ public Action OnPlayerDeath_Pre(Event event, const char[] name, bool dontBroadca
 	if (IsClientConnected(victim) && IsClientInGame(victim)) {
 		// remove domination for victim
 		// source: https://forums.alliedmods.net/showpost.php?p=2703986&postcount=7
-        SetEntProp(victim, Prop_Send, "m_bPlayerDominatingMe", false, _, attacker);
+		SetEntProp(victim, Prop_Send, "m_bPlayerDominatingMe", false, _, attacker);
 	}
 	
 	if (IsClientConnected(attacker) && IsClientInGame(attacker)) {
