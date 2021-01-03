@@ -12,7 +12,7 @@ public Plugin myinfo = {
 	author = "James Pizzurro",
 	description = "Kill zombies and avoid becoming one yourself before time runs out!",
 	version = "0.1.0",
-	url = ""
+	url = "https://github.com/jamespizzurro/csgo-zombie-deathmatch"
 };
 
 // source: https://forums.alliedmods.net/showpost.php?p=1772319&postcount=1
