@@ -11,7 +11,7 @@ public Plugin myinfo = {
 	name = "Zombie Deathmatch",
 	author = "James Pizzurro",
 	description = "Kill zombies and avoid becoming one yourself before time runs out!",
-	version = "0.1.0",
+	version = "0.1.1",
 	url = "https://github.com/jamespizzurro/csgo-zombie-deathmatch"
 };
 
@@ -35,7 +35,6 @@ public void OnPluginStart() {
 	HookUserMessage(GetUserMessageId("SayText2"), OnUserSayText2, true);
 	
 	AddCommandListener(OnLookAtWeapon, "+lookatweapon");
-	AddCommandListener(OnJoinTeam, "jointeam");
 	
 	AutoExecConfig(true, "zdm", "sourcemod/zdm");
 }
@@ -280,13 +279,24 @@ public Action OnUserSayText2(UserMsg msgID, Handle hPb, const int[] iPlayers, in
 
 public Action OnWeaponCanUse(int client, int weapon) {
 	if (IsClientConnected(client) && IsClientInGame(client) && IsPlayerAlive(client)) {
-		// prevent zombies from being able to use weapons other than a knife
 		int team = GetClientTeam(client);
 		if (team == CS_TEAM_T) {
+			// prevent zombies from being able to use weapons other than a knife
 			char weaponClassname[32];
 			GetEdictClassname(weapon, weaponClassname, sizeof(weaponClassname));
 			if (StrContains(weaponClassname, "weapon_knife", false) == -1) {
 				RemovePlayerItem(client, weapon);
+				return Plugin_Handled;
+			}
+		} else if (team == CS_TEAM_CT) {
+			// prevent survivors from being able to use heavy machine guns
+			char weaponClassname[32];
+			GetEdictClassname(weapon, weaponClassname, sizeof(weaponClassname));
+			if ((StrContains(weaponClassname, "weapon_m249", false) != -1) || (StrContains(weaponClassname, "weapon_negev", false) != -1)) {
+				RemovePlayerItem(client, weapon);
+				GivePlayerItem(client, "weapon_p90");
+				
+				PrintToChat(client, "Heavy machine guns are not allowed on this server! You've been given a P90 instead.");
 				return Plugin_Handled;
 			}
 		}
@@ -315,11 +325,6 @@ public Action OnLookAtWeapon(int client, const char[] command, int argc) {
 		}
 	}
 	
-	return Plugin_Handled;
-}
-
-public Action OnJoinTeam(int client, const char[] command, int argc) {
-	// don't let players choose their team; we do that for them
 	return Plugin_Handled;
 }
 
