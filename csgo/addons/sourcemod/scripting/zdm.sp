@@ -11,7 +11,7 @@ public Plugin myinfo = {
 	name = "Zombie Deathmatch",
 	author = "James Pizzurro",
 	description = "Kill zombies and avoid becoming one yourself before time runs out!",
-	version = "0.1.1",
+	version = "0.1.2",
 	url = "https://github.com/jamespizzurro/csgo-zombie-deathmatch"
 };
 
@@ -26,6 +26,7 @@ public void OnPluginStart() {
 	HookEvent("round_prestart", OnRoundPreStart, EventHookMode_Post);
 	HookEvent("round_start", OnRoundStart);
 	HookEvent("player_team", OnPlayerTeam_Pre, EventHookMode_Pre);
+	HookEvent("player_team", OnPlayerTeam_Post, EventHookMode_Post);
 	HookEvent("player_spawn", OnPlayerSpawn, EventHookMode_Post);
 	HookEvent("player_hurt", OnPlayerHurt, EventHookMode_Post);
 	HookEvent("player_death", OnPlayerDeath_Pre, EventHookMode_Pre);
@@ -158,21 +159,56 @@ public void ForcePrecache(const char[] particleName) {
 
 public void OnClientPutInServer(int client) {
 	SDKHook(client, SDKHook_WeaponCanUse, OnWeaponCanUse);
+	SDKHook(client, SDKHook_WeaponEquip, OnWeaponCanUse);
 	SDKHook(client, SDKHook_OnTakeDamage, OnTakeDamage);
 }
 
 public Action OnRoundPreStart(Handle event, const char[] name, bool dontBroadcast) {
+	int numHumansNotPlaying = 0;
 	for (int client = 1; client <= MaxClients; client++) {
-		if (IsClientConnected(client) && IsClientInGame(client)) {
-			int team = GetClientTeam(client);
-			if (IsFakeClient(client)) {
-				// make any bot survivors zombies before the next round starts
-				if (team == CS_TEAM_CT)
+		if (!IsClientConnected(client) || !IsClientInGame(client) || IsFakeClient(client)) {
+			continue;
+		}
+		
+		int team = GetClientTeam(client);
+		if (team != CS_TEAM_T && team != CS_TEAM_CT) {
+			continue;
+		}
+		
+		numHumansNotPlaying++;
+	}
+	
+	if (numHumansNotPlaying <= 0) {
+		// autobalance the teams so that any spectating humans have something to watch
+		int numClientsProcessed = 0;
+		for (int client = 1; client <= MaxClients; client++) {
+			if (IsClientConnected(client) && IsClientInGame(client)) {
+				int team = GetClientTeam(client);
+				if (team != CS_TEAM_T && team != CS_TEAM_CT) {
+					continue;
+				}
+				
+				if (numClientsProcessed % 2 == 0) {
 					CS_SwitchTeam(client, CS_TEAM_T);
-			} else {
-				// make any non-bot zombies survivors before the next round starts
-				if (team == CS_TEAM_T)
+				} else {
 					CS_SwitchTeam(client, CS_TEAM_CT);
+				}
+				
+				numClientsProcessed++;
+			}
+		}
+	} else {
+		// there's at least one human playing, so make sure all humans are survivors and all bots are zombies
+		for (int client = 1; client <= MaxClients; client++) {
+			if (IsClientConnected(client) && IsClientInGame(client)) {
+				int team = GetClientTeam(client);
+				if (IsFakeClient(client)) {
+					if (team == CS_TEAM_CT)
+						CS_SwitchTeam(client, CS_TEAM_T);
+				} else {
+					if (team == CS_TEAM_T)
+						CS_SwitchTeam(client, CS_TEAM_CT);
+				}
 			}
 		}
 	}
@@ -204,11 +240,35 @@ public Action OnPlayerTeam_Pre(Event event, const char[] name, bool dontBroadcas
 	return Plugin_Continue;
 }
 
+public Action OnPlayerTeam_Post(Event event, const char[] name, bool dontBroadcast) {
+	// if there are no more survivors (dead or alive), start the next round
+	if (GetTeamClientCount(CS_TEAM_CT) <= 0)
+		CS_TerminateRound(GetConVarFloat(FindConVar("mp_round_restart_delay")), CSRoundEnd_TerroristWin);
+	
+	return Plugin_Continue;
+}
+
 public void OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast) {
 	int client = GetClientOfUserId(GetEventInt(event, "userid"));
 	if (IsClientConnected(client) && IsClientInGame(client)) {
 		int team = GetClientTeam(client);
 		if (team == CS_TEAM_T) {
+			// remove all weapons from inventory except knife
+			for (int i = 0; i < 4; i++) {
+				if (i == 2) {
+					// keep knife
+					continue;
+				}
+				
+				int entityIndex;
+				while ((entityIndex = GetPlayerWeaponSlot(client, i)) != -1) {
+					FakeClientCommand(client, "use weapon_knife");
+					
+					RemovePlayerItem(client, entityIndex);
+					AcceptEntityInput(entityIndex, "Kill");
+				}
+			}
+			
 			// change the name of zombie bots when they spawn
 			if (IsFakeClient(client)) {
 				char nameBuffer[MAX_NAME_LENGTH];
@@ -278,28 +338,37 @@ public Action OnUserSayText2(UserMsg msgID, Handle hPb, const int[] iPlayers, in
 }
 
 public Action OnWeaponCanUse(int client, int weapon) {
-	if (IsClientConnected(client) && IsClientInGame(client) && IsPlayerAlive(client)) {
-		int team = GetClientTeam(client);
-		if (team == CS_TEAM_T) {
-			// prevent zombies from being able to use weapons other than a knife
-			char weaponClassname[32];
-			GetEdictClassname(weapon, weaponClassname, sizeof(weaponClassname));
-			if (StrContains(weaponClassname, "weapon_knife", false) == -1) {
-				RemovePlayerItem(client, weapon);
-				return Plugin_Handled;
-			}
-		} else if (team == CS_TEAM_CT) {
-			// prevent survivors from being able to use heavy machine guns
-			char weaponClassname[32];
-			GetEdictClassname(weapon, weaponClassname, sizeof(weaponClassname));
-			if ((StrContains(weaponClassname, "weapon_m249", false) != -1) || (StrContains(weaponClassname, "weapon_negev", false) != -1)) {
-				RemovePlayerItem(client, weapon);
-				GivePlayerItem(client, "weapon_p90");
-				
-				PrintToChat(client, "Heavy machine guns are not allowed on this server! You've been given a P90 instead.");
-				return Plugin_Handled;
-			}
+	int team = GetClientTeam(client);
+	if (team == CS_TEAM_T) {
+		// prevent zombies from being able to use weapons other than a knife
+		char weaponClassname[32];
+		GetEdictClassname(weapon, weaponClassname, sizeof(weaponClassname));
+		if (StrContains(weaponClassname, "weapon_knife", false) == -1) {
+			FakeClientCommand(client, "use weapon_knife");
+			
+			RemovePlayerItem(client, weapon);
+			AcceptEntityInput(weapon, "Kill");
+			
+			return Plugin_Handled;
 		}
+	} else if (team == CS_TEAM_CT) {
+		// prevent survivors from being able to use heavy machine guns
+		char weaponClassname[32];
+		GetEdictClassname(weapon, weaponClassname, sizeof(weaponClassname));
+		if ((StrContains(weaponClassname, "weapon_m249", false) != -1) || (StrContains(weaponClassname, "weapon_negev", false) != -1)) {
+			RemovePlayerItem(client, weapon);
+			AcceptEntityInput(weapon, "Kill");
+			
+			GivePlayerItem(client, "weapon_p90");
+			
+			PrintToChat(client, "Heavy machine guns are not allowed on this server! You've been given a P90 instead.");
+			return Plugin_Handled;
+		}
+	} else {
+		RemovePlayerItem(client, weapon);
+		AcceptEntityInput(weapon, "Kill");
+		
+		return Plugin_Handled;
 	}
 	
 	return Plugin_Continue;
@@ -528,7 +597,6 @@ public Action OnPlayerDeath_Post(Event event, const char[] name, bool dontBroadc
 			CS_SwitchTeam(client, CS_TEAM_T);
 			
 			// if this was the last survivor to become a zombie, start the next round
-			// (this is the only win condition for zombies that we need to explicitly handle; CS:GO will handle the rest natively)
 			if (GetTeamClientCount(CS_TEAM_CT) <= 0)
 				CS_TerminateRound(GetConVarFloat(FindConVar("mp_round_restart_delay")), CSRoundEnd_TerroristWin);
 		}
@@ -548,4 +616,10 @@ public Action OnUserTextMsg(UserMsg msgID, Handle hPb, const int[] iPlayers, int
 	}
 	
 	return Plugin_Continue;
+}
+
+public void OnClientDisconnect(int client) {
+	// if there are no more survivors (dead or alive), start the next round
+	if (GetTeamClientCount(CS_TEAM_CT) <= 0)
+		CS_TerminateRound(GetConVarFloat(FindConVar("mp_round_restart_delay")), CSRoundEnd_TerroristWin);
 }
